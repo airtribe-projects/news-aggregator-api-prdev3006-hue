@@ -1,13 +1,18 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { authenticate, createToken } = require('../middleware/auth');
-const { createUser, findUserByEmail, updatePreferences } = require('../services/userStore');
+const {
+  createUser,
+  findUserByEmail,
+  findUserById,
+  updatePreferences,
+} = require('../services/userStore');
 const { validateLogin, validatePreferences, validateSignup } = require('../utils/validators');
 
 const router = express.Router();
 const SALT_ROUNDS = 10;
 
-router.post('/signup', async (req, res, next) => {
+async function registerUser(req, res, next) {
   try {
     const { errors, value } = validateSignup(req.body);
 
@@ -20,20 +25,32 @@ router.post('/signup', async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(value.password, SALT_ROUNDS);
-    createUser({
+    const createdUser = createUser({
       name: value.name,
       email: value.email,
       passwordHash,
       preferences: value.preferences,
     });
 
-    return res.status(200).json({ message: 'User created successfully' });
+    if (!createdUser) {
+      return res.status(409).json({ error: 'A user with this email already exists' });
+    }
+
+    return res.status(201).json({
+      message: 'User created successfully',
+      user: {
+        id: createdUser.id,
+        name: createdUser.name,
+        email: createdUser.email,
+        preferences: createdUser.preferences,
+      },
+    });
   } catch (error) {
     return next(error);
   }
-});
+}
 
-router.post('/login', async (req, res, next) => {
+async function loginUser(req, res, next) {
   try {
     const { errors, value } = validateLogin(req.body);
 
@@ -55,35 +72,49 @@ router.post('/login', async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+}
 
-router.get('/preferences', authenticate, (req, res) => {
-  const user = findUserByEmail(req.user.email);
+function getPreferences(req, res, next) {
+  try {
+    const user = findUserById(req.user.id);
 
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.status(200).json({ preferences: user.preferences });
+  } catch (error) {
+    return next(error);
   }
+}
 
-  return res.status(200).json({ preferences: user.preferences });
-});
+function replacePreferences(req, res, next) {
+  try {
+    const { errors, value } = validatePreferences(req.body);
 
-router.put('/preferences', authenticate, (req, res) => {
-  const { errors, value } = validatePreferences(req.body);
+    if (errors.length > 0) {
+      return res.status(400).json({ error: 'Validation failed', details: errors });
+    }
 
-  if (errors.length > 0) {
-    return res.status(400).json({ error: 'Validation failed', details: errors });
+    const preferences = updatePreferences(req.user.id, value);
+
+    if (!preferences) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.status(200).json({
+      message: 'Preferences updated successfully',
+      preferences,
+    });
+  } catch (error) {
+    return next(error);
   }
+}
 
-  const preferences = updatePreferences(req.user.email, value);
-
-  if (!preferences) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  return res.status(200).json({
-    message: 'Preferences updated successfully',
-    preferences,
-  });
-});
+router.post('/register', registerUser);
+router.post('/signup', registerUser);
+router.post('/login', loginUser);
+router.get('/preferences', authenticate, getPreferences);
+router.put('/preferences', authenticate, replacePreferences);
 
 module.exports = router;

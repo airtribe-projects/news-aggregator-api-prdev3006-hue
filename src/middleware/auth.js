@@ -1,12 +1,20 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'development-news-aggregator-secret';
+function getJwtSecret() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+
+  return process.env.JWT_SECRET;
+}
+
+const JWT_SECRET = getJwtSecret();
 
 function createToken(user) {
   return jwt.sign(
     {
+      id: user.id,
       email: user.email,
-      name: user.name,
     },
     JWT_SECRET,
     { expiresIn: '1h' }

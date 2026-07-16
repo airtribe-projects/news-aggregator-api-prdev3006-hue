@@ -1,3 +1,5 @@
+const { normalizePreferencesInput } = require('../utils/validators');
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map();
 
@@ -28,18 +30,37 @@ const fallbackArticles = [
   },
 ];
 
-function cacheKey(preferences) {
-  return preferences.slice().sort().join('|') || 'top-headlines';
+function createNewsApiError(message) {
+  const error = new Error(message);
+  error.status = 502;
+  return error;
 }
 
-function normalizeGNewsArticle(article, category) {
+function normalizeServicePreferences(preferences) {
+  const result = normalizePreferencesInput(preferences);
+
+  if (result.errors.length > 0) {
+    const error = new Error(result.errors.join(', '));
+    error.status = 400;
+    throw error;
+  }
+
+  return result.value;
+}
+
+function cacheKey(preferences) {
+  const categories = preferences.categories.slice().sort().join(',');
+  const languages = preferences.languages.slice().sort().join(',');
+  return `${categories || 'top-headlines'}|${languages || 'en'}`;
+}
+
+function normalizeGNewsArticle(article) {
   return {
     title: article.title,
     description: article.description || article.content || '',
     source: article.source ? article.source.name : 'GNews',
     url: article.url,
     image: article.image,
-    category,
     publishedAt: article.publishedAt,
   };
 }
@@ -51,33 +72,40 @@ async function fetchFromGNews(preferences) {
     return null;
   }
 
-  const query = encodeURIComponent(preferences.join(' OR ') || 'top news');
-  const url = `https://gnews.io/api/v4/search?q=${query}&lang=en&max=10&apikey=${apiKey}`;
+  const queryText = preferences.categories.join(' OR ') || 'top news';
+  const query = encodeURIComponent(queryText);
+  const language = encodeURIComponent(preferences.languages[0] || 'en');
+  const url = `https://gnews.io/api/v4/search?q=${query}&lang=${language}&max=10&apikey=${apiKey}`;
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`GNews request failed with status ${response.status}`);
+    throw createNewsApiError(`News provider request failed with status ${response.status}`);
   }
 
   const data = await response.json();
-  return (data.articles || []).map((article) => normalizeGNewsArticle(article, preferences[0] || 'general'));
+  if (!Array.isArray(data.articles)) {
+    throw createNewsApiError('News provider returned an invalid response');
+  }
+
+  return data.articles.map((article) => normalizeGNewsArticle(article));
 }
 
 function filterFallbackArticles(preferences) {
-  if (!preferences.length) {
+  if (!preferences.categories.length) {
     return fallbackArticles;
   }
 
   const matches = fallbackArticles.filter((article) => {
     const haystack = `${article.title} ${article.description} ${article.category}`.toLowerCase();
-    return preferences.some((preference) => haystack.includes(preference.toLowerCase()));
+    return preferences.categories.some((category) => haystack.includes(category.toLowerCase()));
   });
 
   return matches.length ? matches : fallbackArticles;
 }
 
 async function getNewsForPreferences(preferences = []) {
-  const key = cacheKey(preferences);
+  const normalizedPreferences = normalizeServicePreferences(preferences);
+  const key = cacheKey(normalizedPreferences);
   const cached = cache.get(key);
 
   if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
@@ -88,27 +116,23 @@ async function getNewsForPreferences(preferences = []) {
     };
   }
 
-  try {
-    const externalArticles = await fetchFromGNews(preferences);
+  const externalArticles = await fetchFromGNews(normalizedPreferences);
 
-    if (externalArticles && externalArticles.length > 0) {
-      cache.set(key, {
-        articles: externalArticles,
-        source: 'gnews',
-        createdAt: Date.now(),
-      });
+  if (externalArticles) {
+    cache.set(key, {
+      articles: externalArticles,
+      source: 'gnews',
+      createdAt: Date.now(),
+    });
 
-      return {
-        articles: externalArticles,
-        source: 'gnews',
-        cached: false,
-      };
-    }
-  } catch (error) {
-    console.warn(error.message);
+    return {
+      articles: externalArticles,
+      source: 'gnews',
+      cached: false,
+    };
   }
 
-  const articles = filterFallbackArticles(preferences);
+  const articles = filterFallbackArticles(normalizedPreferences);
   cache.set(key, {
     articles,
     source: 'fallback',

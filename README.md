@@ -4,9 +4,9 @@ A RESTful API built with Node.js and Express for user authentication, JWT-protec
 
 ## Features
 
-- User signup with bcrypt password hashing
+- User registration with bcrypt password hashing
 - User login with JWT token generation
-- Protected preference management
+- Protected structured preference management for categories and languages
 - Personalized `/news` endpoint
 - GNews integration when `GNEWS_API_KEY` is configured
 - In-memory cache for news responses
@@ -19,8 +19,7 @@ A RESTful API built with Node.js and Express for user authentication, JWT-protec
 npm install
 ```
 
-Create a `.env` file if you want custom secrets or live news.
-To use live news, go to https://docs.gnews.io/#introduction, create a GNews API key, and add it to `.env`:
+Create a `.env` file with a JWT secret. To use live news, go to https://docs.gnews.io/#introduction, create a GNews API key, and add it to `.env`:
 
 ```env
 PORT=3000
@@ -29,6 +28,7 @@ GNEWS_API_KEY=your-gnews-api-key
 ```
 
 The API still works without `GNEWS_API_KEY` by returning local fallback articles, which keeps development and tests reliable.
+`JWT_SECRET` is required because the app will not sign tokens with an insecure fallback secret.
 
 ## Run
 
@@ -44,7 +44,7 @@ npm test
 
 ## Endpoints
 
-### `POST /users/signup`
+### `POST /register`
 
 Creates a user.
 
@@ -53,11 +53,16 @@ Creates a user.
   "name": "Clark Kent",
   "email": "clark@superman.com",
   "password": "Krypt()n8",
-  "preferences": ["movies", "comics"]
+  "preferences": {
+    "categories": ["movies", "comics"],
+    "languages": ["en"]
+  }
 }
 ```
 
-### `POST /users/login`
+Legacy alias: `POST /users/signup`
+
+### `POST /login`
 
 Returns a JWT token.
 
@@ -68,7 +73,9 @@ Returns a JWT token.
 }
 ```
 
-### `GET /users/preferences`
+Legacy alias: `POST /users/login`
+
+### `GET /preferences`
 
 Requires:
 
@@ -76,15 +83,22 @@ Requires:
 Authorization: Bearer <token>
 ```
 
-### `PUT /users/preferences`
+Legacy alias: `GET /users/preferences`
+
+### `PUT /preferences`
 
 Requires a token and updates the current user's preferences.
 
 ```json
 {
-  "preferences": ["movies", "comics", "games"]
+  "preferences": {
+    "categories": ["technology", "business"],
+    "languages": ["en"]
+  }
 }
 ```
+
+Legacy alias: `PUT /users/preferences`
 
 ### `GET /news`
 

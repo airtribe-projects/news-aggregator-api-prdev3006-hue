@@ -12,10 +12,11 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/', (req, res) => {
   res.json({
     message: 'Personalized News Aggregator API',
-    endpoints: ['/users/signup', '/users/login', '/users/preferences', '/news'],
+    endpoints: ['/register', '/login', '/preferences', '/news'],
   });
 });
 
+app.use('/', userRoutes);
 app.use('/users', userRoutes);
 app.use('/news', newsRoutes);
 
@@ -25,8 +26,10 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   const status = err.status || 500;
+  const message = status >= 500 ? 'Internal server error' : err.message;
+
   res.status(status).json({
-    error: err.message || 'Internal server error',
+    error: message || 'Internal server error',
   });
 });
 
